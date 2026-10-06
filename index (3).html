@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Copilot">
+<meta name="theme-color" content="#0f1115">
+<title>Interview Copilot</title>
+<style>
+:root{--bg:#0f1115;--card:#1a1d24;--fg:#e8eaf0;--mut:#8a90a0;--acc:#4f8cff;--ok:#2fbf71;--bad:#ff5a5f}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;gap:8px;align-items:center;padding:10px 12px}
+header h1{font-size:17px;margin:0;flex:1}
+button{border:0;border-radius:12px;padding:12px 16px;font-size:16px;color:#fff;background:var(--acc)}
+button.sec{background:#2a2e38}
+button.rec{background:var(--ok)}
+button.rec.on{background:var(--bad)}
+main{flex:1;overflow-y:auto;padding:0 12px 12px;display:flex;flex-direction:column;gap:10px}
+.card{background:var(--card);border-radius:14px;padding:12px}
+.lbl{font-size:12px;color:var(--mut);margin-bottom:4px;display:flex;justify-content:space-between}
+#tr{max-height:32vh;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+#interim{color:#e6a23c;font-size:13px}
+#meter{height:4px;background:#2a2e38;border-radius:2px;margin-top:8px}
+#lvl{height:100%;width:0;background:var(--ok);border-radius:2px}
+#ans{white-space:pre-wrap;min-height:90px;font-size:17px}
+.bar{display:flex;gap:8px;padding:10px 12px}
+.bar button{flex:1}
+dialog{background:var(--card);color:var(--fg);border:0;border-radius:16px;width:92%;max-width:520px;max-height:88vh;overflow-y:auto}
+dialog::backdrop{background:#000a}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+input,select,textarea{width:100%;background:#0f1115;color:var(--fg);border:1px solid #2d323d;border-radius:10px;padding:10px;font-size:16px}
+textarea{min-height:80px}
+.row{display:flex;gap:8px;align-items:center}
+.hint{font-size:12px;color:var(--mut);margin:4px 0 0}
+h4{margin:16px 0 0;font-size:14px;color:var(--acc)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎙️ Interview Copilot <small id="ver" style="font-size:11px;color:var(--mut)">v7</small></h1>
+  <button class="sec" id="btnSet">设置</button>
+</header>
+
+<main>
+  <div class="card">
+    <div class="lbl"><span>面试官（实时转录）</span><span id="status">未开始</span></div>
+    <div id="tr"></div><div id="interim"></div>
+    <div id="meter"><div id="lvl"></div></div>
+  </div>
+  <div class="card">
+    <div class="lbl"><span>AI 建议回答</span><span id="mdl"></span></div>
+    <div id="ans">点“开始”，把手机靠近电脑扬声器。面试官问完后会自动出答案。</div>
+  </div>
+</main>
+
+<div class="bar">
+  <button class="rec" id="btnRec">开始</button>
+  <button class="sec" id="btnClr">清空</button>
+</div>
+
+<dialog id="dlg">
+  <h3 style="margin:0">设置</h3>
+
+  <h4>① 大模型（回答问题）</h4>
+  <label>API 地址（OpenAI 兼容）</label>
+  <input id="base" placeholder="https://openrouter.ai/api/v1" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <label>API Key</label>
+  <input id="key" type="password" placeholder="sk-..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <label>对话模型</label>
+  <input id="model" placeholder="gpt-4o-mini" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <div class="row" style="margin-top:10px"><button class="sec" id="btnTest" style="flex:1">测试大模型连接</button></div>
+  <div class="hint" id="testout"></div>
+
+  <h4>② 转录（听面试官说话）</h4>
+  <label>转录方式</label>
+  <select id="engine">
+    <option value="whisper">Whisper 云端转录（推荐，准确很多）</option>
+    <option value="web">Safari 自带识别（免费，较差）</option>
+  </select>
+  <label>转录 API 地址（Whisper 模式）</label>
+  <input id="tbase" placeholder="https://api.groq.com/openai/v1" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <label>转录 API Key（留空则用上面的 Key）</label>
+  <input id="tkey" type="password" placeholder="gsk_... / sk-..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <label>转录模型</label>
+  <input id="wmodel" placeholder="whisper-large-v3-turbo / whisper-1" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <p class="hint">DeepSeek 没有转录接口，转录请用 Groq 或 OpenAI 的 Key。</p>
+  <label>收音灵敏度（顶部绿条应在面试官说话时明显跳动）</label>
+  <select id="vad"><option value="0.01">很高（环境很安静 / 音量小）</option><option value="0.02">中（默认）</option><option value="0.035">低（环境嘈杂）</option></select>
+  <label>面试官语言</label>
+  <select id="lang"><option value="en-US">English</option><option value="zh-CN">中文</option></select>
+
+  <h4>③ 回答风格</h4>
+  <label>我的背景 / 简历要点（会发给大模型）</label>
+  <textarea id="bg" placeholder="例如：3年后端经验，Java/Go，做过支付系统…"></textarea>
+  <label>回答风格提示词</label>
+  <textarea id="sys"></textarea>
+
+  <div class="row" style="margin-top:16px"><button id="btnSave" style="flex:1">保存</button><button class="sec" id="btnLink">复制专属链接</button></div>
+  <p class="hint">保存后，请复制专属链接存进备忘录，以后从这条链接打开，设置不会丢。链接含你的 Key，请勿分享。</p>
+</dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const DEF = {
+  base:'https://api.openai.com/v1', key:'', model:'gpt-4o-mini',
+  engine:'whisper', tbase:'https://api.groq.com/openai/v1', tkey:'', wmodel:'whisper-large-v3-turbo', vad:'0.02',
+  lang:'en-US', bg:'', t:0,
+  sys:'你是面试辅助。根据面试官刚说的话，给出可以直接念出来的回答：口语化、第一人称、结构清晰（先结论后要点）、控制在 120 词以内。用与面试官相同的语言回答。'
+};
+const slim = o => { const r={}; for (const k in o) if (o[k]!==DEF[k]) r[k]=o[k]; return r; };
+const enc = o => btoa(unescape(encodeURIComponent(JSON.stringify(slim(o)))));
+const dec = x => JSON.parse(decodeURIComponent(escape(atob(x))));
+
+/* ---------- 设置：浏览器存储 + 网址备份，谁新用谁 ---------- */
+let cfg = Object.assign({}, DEF), src = '默认', A = null, B = null;
+try { const ls = localStorage.getItem('ic_cfg'); if (ls) A = JSON.parse(ls); } catch(e){}
+try { const m = location.hash.match(/#c=([^&]+)/); if (m) B = dec(decodeURIComponent(m[1])); } catch(e){}
+if (A && B){ if ((A.t||0) >= (B.t||0)){ Object.assign(cfg,B,A); src='浏览器存储'; } else { Object.assign(cfg,A,B); src='网址'; } }
+else if (A){ Object.assign(cfg,A); src='浏览器存储'; }
+else if (B){ Object.assign(cfg,B); src='网址'; }
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(e){}
+
+function save(touch){
+  if (touch) cfg.t = Date.now();
+  const r = {ls:false, url:false};
+  try{ localStorage.setItem('ic_cfg', JSON.stringify(cfg)); r.ls = localStorage.getItem('ic_cfg') !== null; }catch(e){}
+  try{ history.replaceState(null,'','#c='+encodeURIComponent(enc(cfg))); r.url = location.hash.indexOf('#c=')===0; }catch(e){}
+  return r;
+}
+save(false);
+function loadForm(){ for (const k in DEF){ const el=$(k); if(el) el.value = cfg[k]; } }
+function readForm(){ for (const k in DEF){ const el=$(k); if(el) cfg[k] = el.value.trim(); } return save(true); }
+$('btnSet').onclick = () => { loadForm(); $('dlg').showModal(); };
+$('btnSave').onclick = () => {
+  const r = readForm(); $('mdl').textContent = cfg.model; $('dlg').close();
+  $('ans').textContent = '设置已保存：浏览器存储 '+(r.ls?'✓':'✗（被禁用，请关闭无痕模式）')+'；网址备份 '+(r.url?'✓（请复制专属链接保存）':'✗');
+};
+$('btnLink').onclick = async () => { readForm(); try{ await navigator.clipboard.writeText(location.href); $('btnLink').textContent='已复制'; }catch(e){ prompt('长按复制：', location.href); } };
+$('mdl').textContent = cfg.model;
+$('ans').textContent += '\n\n[设置来源：'+src+'；Key：'+(cfg.key?'已设置（尾号 '+cfg.key.slice(-4)+'）':'未设置')+']';
+if (!cfg.key) setTimeout(()=>$('btnSet').click(), 300);
+
+/* ---------- 测试大模型连接 ---------- */
+$('btnTest').onclick = async () => {
+  readForm(); const o = $('testout'); o.textContent = '测试中…';
+  try{
+    const r = await fetch(cfg.base.replace(/\/$/,'')+'/chat/completions', {method:'POST',
+      headers:{'Content-Type':'application/json', Authorization:'Bearer '+cfg.key},
+      body: JSON.stringify({model:cfg.model, messages:[{role:'user',content:'Reply with OK'}], max_tokens:20})});
+    const t = await r.text();
+    if (r.ok){ let c=''; try{ c = JSON.parse(t).choices?.[0]?.message?.content||''; }catch(e){} o.textContent = '✓ 连接成功。模型回复：'+c.slice(0,40); }
+    else o.textContent = '✗ 服务返回 '+r.status+'：'+t.slice(0,200)+'（401=Key 错；404=地址错；400=模型名错）';
+  }catch(e){ o.textContent = '✗ 无法连接（'+e.message+'）。多半是该服务不允许浏览器直连（CORS，DeepSeek 官方接口就是这样），或地址写错。请改用 OpenRouter / OpenAI，或加中转。'; }
+};
+
+/* ---------- 转录文本管理 ---------- */
+let running=false, txt='', used=0, prefix='', sess='', t1=null, t2=null, wake=null, ctrl=null;
+let inflight=false, askLen=-1, lastChange=0;
+const chat = [];
+const sep = () => cfg.lang.startsWith('zh') ? '' : ' ';
+const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function setStatus(s){ $('status').textContent = s; }
+function render(){
+  $('tr').innerHTML = '<span style="color:var(--mut)">'+esc(txt.slice(0,used))+'</span>'+esc(txt.slice(used));
+  $('tr').scrollTop = 1e9;
+}
+function setTxt(t){
+  if (t === txt) return;
+  txt = t; if (used > txt.length) used = txt.length;
+  lastChange = Date.now(); render(); schedule();
+}
+function addText(t){ setTxt((txt ? txt+sep() : '') + t); }
+function schedule(){
+  clearTimeout(t1); clearTimeout(t2);
+  if (!running || !txt.slice(used).trim()) return;
+  t1 = setTimeout(()=>ask(false), 1000);   // 停顿 1 秒：让大模型判断问题是否说完
+  t2 = setTimeout(()=>ask(true), 4000);    // 停顿 4 秒：强制视为说完
+}
+
+/* ---------- 引擎 A：Safari 自带识别 ---------- */
+let sr = null;
+function startWeb(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR){ alert('此浏览器不支持语音识别，请改用 Whisper 模式。'); return false; }
+  sr = new SR(); sr.continuous = true; sr.interimResults = true; sr.lang = cfg.lang;
+  sr.onresult = e => {
+    let s = '';
+    for (let i=0; i<e.results.length; i++){ const p = e.results[i][0].transcript.trim(); if (p) s += (s ? sep() : '') + p; }
+    sess = s; setTxt(prefix + sess);   // 直接用实时（含未定稿）文字，不等 isFinal
+  };
+  sr.onerror = e => {
+    const M = {
+      'not-allowed':'麦克风/识别权限被拒绝。请到 设置 → Safari → 麦克风 改为允许，然后刷新。',
+      'service-not-allowed':'iOS 听写/Siri 没开，或在“主屏幕 App”模式。请开启 设置 → 通用 → 键盘 → 启用听写，并直接在 Safari 打开；或改用 Whisper 模式。',
+      'audio-capture':'找不到可用的麦克风。', 'network':'Safari 语音识别需要联网。'
+    };
+    if (M[e.error]){ stop(); setStatus('已停止：'+e.error); $('interim').textContent = M[e.error]; }
+  };
+  sr.onend = () => { if (sess){ prefix += sess + sep(); sess=''; } if (running){ try{ sr.start(); }catch(e){} } };
+  try{ sr.start(); }catch(e){}
+  return true;
+}
+
+/* ---------- 引擎 B：Whisper 云端转录（按“说话段”切分，不再固定 6 秒） ---------- */
+let stream=null, ac=null, vadTimer=null, tq=Promise.resolve();
+const GHOST = /^(thank you[.!]?|thanks for watching[.!]?|bye[.!]?|you[.!]?|字幕.*|谢谢观看.*|请不吝.*|.*interviewer is asking the candidate.*|.*这是一场求职面试.*)$/i;
+async function startWhisper(){
+  if (!(cfg.tkey || cfg.key)){ alert('请先在设置里填写转录 API Key'); return false; }
+  try{ stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:true}}); }
+  catch(e){ alert('无法获取麦克风：'+e.message); return false; }
+  const AC = window.AudioContext || window.webkitAudioContext; ac = new AC(); try{ await ac.resume(); }catch(e){}
+  const an = ac.createAnalyser(); an.fftSize = 1024; ac.createMediaStreamSource(stream).connect(an);
+  const fb = new Float32Array(an.fftSize);
+  const mime = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
+  const ext = mime==='audio/mp4' ? 'm4a' : 'webm';
+  const th = parseFloat(cfg.vad) || 0.02;
+  let rec=null, chunks=[], speaking=false, lastVoice=0, startT=0;
+  const finish = () => {
+    speaking = false; const r = rec, c = chunks, dur = performance.now()-startT; rec = null; if (!r) return;
+    r.onstop = () => { if (dur < 600) return; const blob = new Blob(c,{type:mime}); if (blob.size > 3000) tq = tq.then(()=>transcribe(blob, ext)); };
+    try{ r.stop(); }catch(e){}
+  };
+  vadTimer = setInterval(() => {
+    an.getFloatTimeDomainData(fb); let s=0; for (let i=0;i<fb.length;i++) s += fb[i]*fb[i];
+    const rms = Math.sqrt(s/fb.length); $('lvl').style.width = Math.min(100, rms*600)+'%';
+    const now = performance.now();
+    if (rms > th){
+      lastVoice = now;
+      if (!speaking){ speaking=true; startT=now; chunks=[]; const c=chunks;
+        rec = new MediaRecorder(stream,{mimeType:mime}); rec.ondataavailable = e => { if (e.data.size) c.push(e.data); }; rec.start(); }
+    }
+    if (speaking && (now-lastVoice > 900 || now-startT > 20000)) finish();
+  }, 50);
+  return true;
+}
+async function transcribe(blob, ext){
+  const fd = new FormData();
+  fd.append('file', blob, 'a.'+ext); fd.append('model', cfg.wmodel || 'whisper-1');
+  fd.append('language', cfg.lang.slice(0,2)); fd.append('temperature','0');
+  fd.append('prompt', cfg.lang.startsWith('zh') ? '这是一场求职面试，面试官在提问。' : 'This is a job interview. The interviewer is asking the candidate questions about experience, projects and technical skills.');
+  try{
+    const r = await fetch((cfg.tbase||cfg.base).replace(/\/$/,'')+'/audio/transcriptions', {method:'POST', headers:{Authorization:'Bearer '+(cfg.tkey||cfg.key)}, body:fd});
+    if (!r.ok){ $('interim').textContent = '转录失败 '+r.status+'：'+(await r.text()).slice(0,150); return; }
+    const t = ((await r.json()).text||'').trim();
+    if (t && !GHOST.test(t)){ $('interim').textContent=''; addText(t); }
+  }catch(e){ $('interim').textContent = '转录请求失败：'+e.message+'（该服务可能不允许浏览器直连，推荐 Groq 或 OpenAI）'; }
+}
+
+/* ---------- 大模型：判断问题是否说完，并流式回答 ---------- */
+async function ask(force){
+  const qEnd = txt.length, q = txt.slice(used).trim(); if (!q || !running) return;
+  if (inflight && qEnd === askLen) return;          // 同一段文字已经在处理
+  if (!cfg.key){ $('btnSet').click(); return; }
+  if (ctrl) ctrl.abort(); const my = ctrl = new AbortController();
+  inflight = true; askLen = qEnd;
+  const proto = '\n\n【输出协议】我会把面试官到目前为止说的话发给你，他可能还没说完。\n'
+    + '- 如果问题明显没说完（句子被截断、只说了一半），只输出 [WAIT]\n'
+    + '- 如果是寒暄、过渡语或不需要我回答的内容，只输出 [SKIP]\n'
+    + '- 否则直接输出回答，不要任何前缀。转录可能有错字，请按上下文理解。'
+    + (force ? '\n- 注意：面试官已停顿很久，除非纯寒暄，否则必须回答。' : '');
+  const sys = cfg.sys + (cfg.bg ? '\n\n【我的背景】\n'+cfg.bg : '') + proto;
+  const msgs = [{role:'system',content:sys}, ...chat.slice(-8), {role:'user',content:'面试官说：'+q}];
+  let out='', shown=false, decision='';
+  setStatus('● 判断中');
+  try{
+    const r = await fetch(cfg.base.replace(/\/$/,'')+'/chat/completions', {
+      method:'POST', signal:my.signal,
+      headers:{'Content-Type':'application/json', Authorization:'Bearer '+cfg.key},
+      body: JSON.stringify({model:cfg.model, messages:msgs, stream:true})
+    });
+    if (!r.ok){ $('ans').textContent = '错误 '+r.status+'：'+(await r.text()).slice(0,300); return; }
+    const rd = r.body.getReader(), dc = new TextDecoder(); let buf='';
+    outer: while(true){
+      const {done,value} = await rd.read(); if (done) break;
+      buf += dc.decode(value,{stream:true}); const lines = buf.split('\n'); buf = lines.pop();
+      for (const l of lines){
+        if (!l.startsWith('data:')) continue; const d = l.slice(5).trim(); if (d==='[DONE]') continue;
+        let t; try{ t = JSON.parse(d).choices?.[0]?.delta?.content; }catch(e){}
+        if (!t) continue; out += t;
+        if (!shown){
+          const h = out.trimStart();
+          if (h.startsWith('[WAIT')){ decision='WAIT'; rd.cancel(); break outer; }
+          if (h.startsWith('[SKIP')){ decision='SKIP'; rd.cancel(); break outer; }
+          if (h.length >= 6 || (h.length && h[0] !== '[')){ shown = true; $('ans').textContent = ''; }
+        }
+        if (shown) $('ans').textContent = out;
+      }
+    }
+    if (decision==='WAIT'){
+      if (Date.now()-lastChange >= 3500){ inflight=false; ask(true); }   // 已停顿很久，强制回答
+      return;
+    }
+    if (decision==='SKIP'){ used = qEnd; render(); return; }
+    if (out.trim()){ used = qEnd; render(); chat.push({role:'user',content:'面试官说：'+q},{role:'assistant',content:out}); }
+  }catch(e){
+    if (e.name !== 'AbortError') $('ans').textContent = '请求失败：'+e.message+'\n多半是该服务不允许浏览器直连(CORS)（DeepSeek 官方就是），请改用 OpenRouter/OpenAI 或加中转。可在设置里点“测试大模型连接”。';
+  }finally{
+    if (ctrl === my){ inflight = false; if (running) setStatus('● 聆听中'); }
+  }
+}
+
+/* ---------- 控制 ---------- */
+async function start(){
+  running = true;
+  if (cfg.engine==='web' && navigator.standalone) $('interim').textContent='提示：主屏幕 App 模式下 iOS 自带识别常不可用，建议改用 Whisper。';
+  const ok = cfg.engine==='web' ? startWeb() : await startWhisper();
+  if (!ok){ running=false; return; }
+  $('btnRec').textContent='停止'; $('btnRec').classList.add('on'); setStatus('● 聆听中');
+  try{ wake = await navigator.wakeLock?.request('screen'); }catch(e){}
+}
+function stop(){
+  running = false; clearTimeout(t1); clearTimeout(t2); if (ctrl) ctrl.abort(); clearInterval(vadTimer);
+  try{ sr && sr.stop(); }catch(e){}
+  stream && stream.getTracks().forEach(t=>t.stop()); try{ ac && ac.close(); }catch(e){}
+  try{ wake && wake.release(); }catch(e){}
+  $('lvl').style.width='0'; $('btnRec').textContent='开始'; $('btnRec').classList.remove('on'); setStatus('已停止');
+}
+$('btnRec').onclick = () => running ? stop() : start();
+$('btnClr').onclick = () => { clearTimeout(t1); clearTimeout(t2); if (ctrl) ctrl.abort(); inflight=false; txt=''; used=0; prefix=''; sess=''; chat.length=0; $('tr').textContent=''; $('interim').textContent=''; $('ans').textContent=''; };
+document.addEventListener('visibilitychange', async()=>{ if (running && !document.hidden){ try{ wake = await navigator.wakeLock?.request('screen'); }catch(e){} } });
+</script>
+</body>
+</html>
